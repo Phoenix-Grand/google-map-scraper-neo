@@ -1,5 +1,5 @@
 cache/
-vendor
+/vendor/
 bin
 webdata/
 examples/examples-api/map-outputs

@@ -1,0 +1,14 @@
+services:
+  web:
+    build: .
+    image: gmaps-neo:local
+    ports:
+      - "127.0.0.1:${WEB_PORT:-8081}:8080"
+    volumes:
+      - ./webdata:/gmapsdata
+    environment:
+      DISABLE_TELEMETRY: "1"
+    command: ["-web", "-data-folder", "/gmapsdata", "-addr", ":8080"]
+    init: true
+    shm_size: 1gb
+    restart: unless-stopped

@@ -137,18 +137,31 @@ func (w *webrunner) work(ctx context.Context) error {
 	}
 }
 
-func (w *webrunner) scrapeJob(ctx context.Context, job *web.Job) error {
+func (w *webrunner) scrapeJob(ctx context.Context, job *web.Job) (err error) {
 	job.Status = web.StatusWorking
 
-	err := w.svc.Update(ctx, job)
+	err = w.svc.Update(ctx, job)
 	if err != nil {
 		return err
 	}
 
-	if len(job.Data.Keywords) == 0 {
+	defer func() {
+		if err == nil {
+			return
+		}
+
 		job.Status = web.StatusFailed
 
-		return w.svc.Update(ctx, job)
+		statusCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+
+		if updateErr := w.svc.Update(statusCtx, job); updateErr != nil {
+			log.Printf("failed to update job status: %v", updateErr)
+		}
+	}()
+
+	if len(job.Data.Keywords) == 0 {
+		return errors.New("missing keywords")
 	}
 
 	outpath := filepath.Join(w.cfg.DataFolder, job.ID+".csv")
@@ -169,13 +182,6 @@ func (w *webrunner) scrapeJob(ctx context.Context, job *web.Job) error {
 
 	mate, err := setupMate(ctx, outfile, job)
 	if err != nil {
-		job.Status = web.StatusFailed
-
-		err2 := w.svc.Update(ctx, job)
-		if err2 != nil {
-			log.Printf("failed to update job status: %v", err2)
-		}
-
 		return err
 	}
 
@@ -209,11 +215,6 @@ func (w *webrunner) scrapeJob(ctx context.Context, job *web.Job) error {
 		w.cfg.ExtraReviews || job.Data.ExtraReviews,
 	)
 	if err != nil {
-		err2 := w.svc.Update(ctx, job)
-		if err2 != nil {
-			log.Printf("failed to update job status: %v", err2)
-		}
-
 		return err
 	}
 
@@ -242,11 +243,6 @@ func (w *webrunner) scrapeJob(ctx context.Context, job *web.Job) error {
 		err = mate.Start(mateCtx, seedJobs...)
 		if err != nil && !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
 			cancel()
-
-			err2 := w.svc.Update(ctx, job)
-			if err2 != nil {
-				log.Printf("failed to update job status: %v", err2)
-			}
 
 			return err
 		}

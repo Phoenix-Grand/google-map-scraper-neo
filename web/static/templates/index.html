@@ -3,9 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- Preserve the tbody when a response also contains out-of-band pagination. -->
+    <meta name="htmx-config" content='{"useTemplateFragments":true}'>
     <title>Google Maps Scraper</title>
     <link rel="stylesheet" href="/static/css/main.css">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/htmx/1.9.6/htmx.min.js"></script>
+    <script src="/static/vendor/htmx/htmx.min.js"></script>
 </head>
 <body>
     <div class="app-container">
@@ -39,14 +41,14 @@
         </header>
         <main>
             <div class="sidebar">
-                <div id="error-container" class="error-message"></div>
+                <div id="error-container" class="error-message" role="alert"></div>
                 <form 
                     hx-post="/scrape" 
                     hx-target="#job-tbody"
                     hx-swap="outerHTML"
                     hx-indicator="#spinner"
-                    hx-on::before-request="document.getElementById('error-container').innerHTML = ''"
-                    hx-on::after-request="if(!event.detail.successful) document.getElementById('error-container').innerHTML = event.detail.xhr.responseText"
+                    hx-on::before-request="document.getElementById('error-container').textContent = ''"
+                    hx-on::after-request="if(!event.detail.successful) document.getElementById('error-container').textContent = event.detail.xhr.responseText || 'Unable to reach the server. Please try again.'"
                 >
                     
                     <fieldset>

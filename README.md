@@ -1,4 +1,22 @@
-# Google Maps Scraper
+# Google Maps Scraper Neo
+
+Neo is maintained at [Phoenix-Grand/google-map-scraper-neo](https://github.com/Phoenix-Grand/google-map-scraper-neo), based on [gosom/google-maps-scraper](https://github.com/gosom/google-maps-scraper). This fork fixes Web UI job tables and pagination, serves HTMX locally, and records failed scraping jobs correctly.
+
+The versioned container image includes Chromium and supports Linux on AMD64 and ARM64:
+
+```bash
+docker pull ghcr.io/phoenix-grand/google-map-scraper-neo:1.18.1-neo.1
+mkdir -p webdata
+docker run -d --name gmaps-neo --init --shm-size=1g \
+  --restart unless-stopped \
+  -p 127.0.0.1:8081:8080 \
+  -v "$(pwd)/webdata:/gmapsdata" \
+  -e DISABLE_TELEMETRY=1 \
+  ghcr.io/phoenix-grand/google-map-scraper-neo:1.18.1-neo.1 \
+  -web -data-folder /gmapsdata -addr :8080
+```
+
+Open [http://localhost:8081](http://localhost:8081). Use `latest-neo` to follow the newest Neo release. Pushing a Git tag such as `v1.18.1-neo.1` publishes both the matching version tag and `latest-neo` to GitHub Container Registry.
 
 <p align="center">
   <a href="https://github.com/gosom/google-maps-scraper/stargazers"><img src="https://img.shields.io/github/stars/gosom/google-maps-scraper?style=social" alt="GitHub Stars"></a>
@@ -6,7 +24,7 @@
   <a href="https://twitter.com/intent/tweet?text=Powerful%20open-source%20Google%20Maps%20scraper%20-%20extract%20business%20data%20at%20scale%20with%20CLI%2C%20Web%20UI%2C%20or%20REST%20API&url=https%3A%2F%2Fgithub.com%2Fgosom%2Fgoogle-maps-scraper&hashtags=golang,webscraping,googlemaps,opensource"><img src="https://img.shields.io/twitter/url/http/shields.io.svg?style=social" alt="Tweet"></a>
 </p>
 
-[![Build Status](https://github.com/gosom/google-maps-scraper/actions/workflows/build.yml/badge.svg)](https://github.com/gosom/google-maps-scraper/actions/workflows/build.yml)
+[![Build Status](https://github.com/Phoenix-Grand/google-map-scraper-neo/actions/workflows/build.yml/badge.svg)](https://github.com/Phoenix-Grand/google-map-scraper-neo/actions/workflows/build.yml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/gosom/google-maps-scraper)](https://goreportcard.com/report/github.com/gosom/google-maps-scraper)
 [![GoDoc](https://godoc.org/github.com/gosom/google-maps-scraper?status.svg)](https://godoc.org/github.com/gosom/google-maps-scraper)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -297,6 +315,22 @@ docker run \
 
 ### Web UI
 
+To build and run the Web UI from this checkout (including local changes), use Docker Desktop or Docker Engine:
+
+```sh
+docker compose -f docker-compose.web.yaml up --build -d
+```
+
+Open http://localhost:8081. Jobs and CSV results persist in `webdata/`.
+The port can be changed with the `WEB_PORT` environment variable. Run the same
+command after editing the source to rebuild and restart the app.
+
+To stop it:
+
+```sh
+docker compose -f docker-compose.web.yaml down
+```
+
 Start the web interface with a single command:
 
 ```bash
@@ -313,7 +347,7 @@ Then open http://localhost:8080 in your browser.
 
 Or download the [binary release](https://github.com/gosom/google-maps-scraper/releases) for your platform.
 
-> **Note:** Results take at least 3 minutes to appear (minimum configured runtime).
+> **Note:** The jobs list refreshes every 10 seconds. The configured maximum job time must be at least 3 minutes; jobs can finish earlier.
 > 
 > **macOS Users:** Docker command may not work. See [MacOS Instructions](MacOS%20instructions.md).
 

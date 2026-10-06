@@ -3,7 +3,9 @@ package webrunner
 
 import (
 	"context"
+	"errors"
 	"io"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -64,11 +66,12 @@ func TestScrapeJobMarksOKBeforeClosingMate(t *testing.T) {
 }
 
 type fakeMate struct {
-	onClose func()
+	onClose  func()
+	startErr error
 }
 
 func (m fakeMate) Start(context.Context, ...scrapemate.IJob) error {
-	return nil
+	return m.startErr
 }
 
 func (m fakeMate) Close() error {
@@ -77,6 +80,96 @@ func (m fakeMate) Close() error {
 	}
 
 	return nil
+}
+
+func TestScrapeJobMarksFailedOnError(t *testing.T) {
+	t.Parallel()
+
+	setupErr := errors.New("browser setup failed")
+	crawlErr := errors.New("crawl failed")
+
+	for _, scenario := range []struct {
+		name      string
+		configure func(*webrunner, *web.Job)
+		wantErr   error
+	}{
+		{
+			name:      "missing keywords",
+			configure: func(_ *webrunner, job *web.Job) { job.Data.Keywords = nil },
+		},
+		{
+			name: "cannot create output",
+			configure: func(w *webrunner, _ *web.Job) {
+				w.cfg.DataFolder = filepath.Join(w.cfg.DataFolder, "missing")
+			},
+		},
+		{
+			name: "browser setup",
+			configure: func(w *webrunner, _ *web.Job) {
+				w.setupMate = func(context.Context, io.Writer, *web.Job) (mateRunner, error) {
+					return nil, setupErr
+				}
+			},
+			wantErr: setupErr,
+		},
+		{
+			name:      "invalid seed coordinates",
+			configure: func(_ *webrunner, job *web.Job) { job.Data.Lat = "invalid" },
+		},
+		{
+			name: "crawl",
+			configure: func(w *webrunner, _ *web.Job) {
+				w.setupMate = func(context.Context, io.Writer, *web.Job) (mateRunner, error) {
+					return fakeMate{startErr: crawlErr}, nil
+				}
+			},
+			wantErr: crawlErr,
+		},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			t.Parallel()
+
+			repo := &memoryJobRepo{}
+			svc := web.NewService(repo, t.TempDir())
+			job := web.Job{
+				ID: "job-1", Name: "coffee", Date: time.Now().UTC(), Status: web.StatusPending,
+				Data: web.JobData{
+					Keywords: []string{"coffee"}, Lang: "en", Zoom: 15,
+					Lat: "37.7749", Lon: "-122.4194", FastMode: true,
+					Radius: 1000, Depth: 10, MaxTime: 3 * time.Minute,
+				},
+			}
+			w := &webrunner{
+				svc: svc, cfg: &runner.Config{DataFolder: t.TempDir(), Concurrency: 1},
+				setupMate: func(context.Context, io.Writer, *web.Job) (mateRunner, error) {
+					return fakeMate{}, nil
+				},
+			}
+			scenario.configure(w, &job)
+
+			if err := svc.Create(context.Background(), &job); err != nil {
+				t.Fatal(err)
+			}
+
+			err := w.scrapeJob(context.Background(), &job)
+			if err == nil {
+				t.Fatal("expected scraping error")
+			}
+
+			if scenario.wantErr != nil && !errors.Is(err, scenario.wantErr) {
+				t.Fatalf("error = %v, want %v", err, scenario.wantErr)
+			}
+
+			got, err := svc.Get(context.Background(), job.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if got.Status != web.StatusFailed {
+				t.Fatalf("status = %q, want %q", got.Status, web.StatusFailed)
+			}
+		})
+	}
 }
 
 type memoryJobRepo struct {
