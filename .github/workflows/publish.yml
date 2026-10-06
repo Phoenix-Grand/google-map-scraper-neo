@@ -19,10 +19,21 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  publish_container:
-    name: Publish Neo container to GHCR
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
+  build_container:
+    name: Build Neo container (${{ matrix.architecture }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - architecture: amd64
+            runner: ubuntu-24.04
+          - architecture: arm64
+            runner: ubuntu-24.04-arm
+    outputs:
+      image: ${{ steps.image.outputs.name }}
+      version: ${{ steps.release.outputs.version }}
     steps:
       - name: Check out the repo
         uses: actions/checkout@v4
@@ -38,7 +49,6 @@ jobs:
             echo "Expected a version tag such as v1.18.1-neo.1" >&2
             exit 1
           fi
-          echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
           echo "version=${RELEASE_TAG#v}" >> "$GITHUB_OUTPUT"
           echo "revision=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
@@ -47,9 +57,6 @@ jobs:
         env:
           REPOSITORY: ${{ github.repository }}
         run: echo "name=ghcr.io/${REPOSITORY,,}" >> "$GITHUB_OUTPUT"
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v4
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -61,36 +68,78 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata (tags, labels) for Docker
+      - name: Extract image labels
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ steps.image.outputs.name }}
           flavor: latest=false
-          tags: |
-            type=raw,value=${{ steps.release.outputs.version }}
-            type=raw,value=latest-neo
+          tags: type=raw,value=${{ steps.release.outputs.version }}
           labels: |
             org.opencontainers.image.revision=${{ steps.release.outputs.revision }}
 
-      - name: Build and push Docker image
+      - name: Build and push image by digest
         id: build
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
+          platforms: linux/${{ matrix.architecture }}
+          outputs: type=image,name=${{ steps.image.outputs.name }},push-by-digest=true,name-canonical=true,push=true
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=neo-${{ matrix.architecture }}
+          cache-to: type=gha,mode=max,scope=neo-${{ matrix.architecture }}
 
-      - name: Record published image
+      - name: Export image digest
         env:
-          IMAGE: ${{ steps.image.outputs.name }}
-          TAG: ${{ steps.release.outputs.tag }}
           DIGEST: ${{ steps.build.outputs.digest }}
         run: |
-          echo "Published: \`$IMAGE:${TAG#v}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "Digest: \`$DIGEST\`" >> "$GITHUB_STEP_SUMMARY"
+          mkdir -p "$RUNNER_TEMP/digests"
+          touch "$RUNNER_TEMP/digests/${DIGEST#sha256:}"
+
+      - name: Upload image digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ matrix.architecture }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  publish_container:
+    name: Publish Neo version tags
+    needs: build_container
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Download image digests
+        uses: actions/download-artifact@v4
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests-*
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish and inspect multi-platform image
+        working-directory: ${{ runner.temp }}/digests
+        env:
+          IMAGE: ${{ needs.build_container.outputs.image }}
+          VERSION: ${{ needs.build_container.outputs.version }}
+        run: |
+          sources=()
+          for digest in *; do
+            [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || exit 1
+            sources+=("$IMAGE@sha256:$digest")
+          done
+          [[ ${#sources[@]} -eq 2 ]] || exit 1
+          docker buildx imagetools create --tag "$IMAGE:$VERSION" --tag "$IMAGE:latest-neo" "${sources[@]}"
+          docker buildx imagetools inspect "$IMAGE:$VERSION" | tee "$RUNNER_TEMP/manifest.txt"
+          cat "$RUNNER_TEMP/manifest.txt" >> "$GITHUB_STEP_SUMMARY"
