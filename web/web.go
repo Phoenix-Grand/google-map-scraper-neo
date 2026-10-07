@@ -29,15 +29,17 @@ const (
 )
 
 type Server struct {
-	tmpl map[string]*template.Template
-	srv  *http.Server
-	svc  *Service
+	tmpl        map[string]*template.Template
+	srv         *http.Server
+	svc         *Service
+	zipResolver zipResolver
 }
 
 func New(svc *Service, addr string) (*Server, error) {
 	ans := Server{
-		svc:  svc,
-		tmpl: make(map[string]*template.Template),
+		zipResolver: newZIPResolver(),
+		svc:         svc,
+		tmpl:        make(map[string]*template.Template),
 		srv: &http.Server{
 			Addr:              addr,
 			ReadHeaderTimeout: 10 * time.Second,
@@ -187,6 +189,7 @@ type formData struct {
 	Zoom     int
 	FastMode bool
 	Radius   int
+	ZIPCode  string
 	Lat      string
 	Lon      string
 	Depth    int
@@ -250,8 +253,8 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 		Zoom:     15,
 		FastMode: false,
 		Radius:   10000,
-		Lat:      "0",
-		Lon:      "0",
+		Lat:      "",
+		Lon:      "",
 		Depth:    10,
 		Email:    false,
 	}
@@ -328,12 +331,26 @@ func (s *Server) scrape(w http.ResponseWriter, r *http.Request) {
 		newJob.Data.FastMode = true
 	}
 
-	newJob.Data.Radius, err = strconv.Atoi(r.Form.Get("radius"))
-	if err != nil {
-		http.Error(w, "invalid radius", http.StatusUnprocessableEntity)
+	// Accept the legacy meters field from older clients.
+	if radius := r.Form.Get("radius"); radius != "" {
+		newJob.Data.Radius, err = strconv.Atoi(radius)
+		if err != nil {
+			http.Error(w, "invalid radius", http.StatusUnprocessableEntity)
 
-		return
+			return
+		}
 	}
+
+	if miles := strings.TrimSpace(r.Form.Get("radius_miles")); miles != "" {
+		newJob.Data.RadiusMiles, err = strconv.ParseFloat(miles, 64)
+		if err != nil || !finite(newJob.Data.RadiusMiles) || newJob.Data.RadiusMiles <= 0 {
+			http.Error(w, "radius in miles must be a positive number", http.StatusUnprocessableEntity)
+
+			return
+		}
+	}
+
+	newJob.Data.ZIPCode = strings.TrimSpace(r.Form.Get("zip_code"))
 
 	newJob.Data.Lat = r.Form.Get("latitude")
 	newJob.Data.Lon = r.Form.Get("longitude")
@@ -359,9 +376,9 @@ func (s *Server) scrape(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	err = newJob.Validate()
+	err = s.prepareJob(r.Context(), &newJob)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+		http.Error(w, err.Error(), locationErrorStatus(err))
 
 		return
 	}
@@ -434,6 +451,19 @@ func (s *Server) download(w http.ResponseWriter, r *http.Request) {
 	id, ok := getIDFromRequest(r)
 	if !ok {
 		http.Error(w, "Invalid ID", http.StatusUnprocessableEntity)
+
+		return
+	}
+
+	format := r.URL.Query().Get("format")
+	if format != "" && format != "full" && format != "business" {
+		http.Error(w, "invalid CSV format", http.StatusUnprocessableEntity)
+
+		return
+	}
+
+	if format == "business" {
+		s.downloadBusiness(w, r, id.String())
 
 		return
 	}
@@ -539,14 +569,15 @@ func (s *Server) apiScrape(w http.ResponseWriter, r *http.Request) {
 	// convert to seconds
 	newJob.Data.MaxTime *= time.Second
 
-	err = newJob.Validate()
+	err = s.prepareJob(r.Context(), &newJob)
 	if err != nil {
+		status := locationErrorStatus(err)
 		ans := apiError{
-			Code:    http.StatusUnprocessableEntity,
+			Code:    status,
 			Message: err.Error(),
 		}
 
-		renderJSON(w, http.StatusUnprocessableEntity, ans)
+		renderJSON(w, status, ans)
 
 		return
 	}

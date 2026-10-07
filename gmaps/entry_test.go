@@ -45,6 +45,7 @@ func Test_EntryFromJSON(t *testing.T) {
 		},
 		WebSite:      "",
 		Phone:        "25 101555",
+		PhoneNumbers: []string{"25 101555"},
 		PlusCode:     "M2CR+6X Limassol",
 		ReviewCount:  396,
 		ReviewRating: 4.2,
@@ -325,4 +326,32 @@ func Test_EntryFromJSONStatusFallback(t *testing.T) {
 	entry, err := gmaps.EntryFromJSON(raw)
 	require.NoError(t, err)
 	require.Equal(t, "CLOSED", entry.Status)
+}
+
+func TestBusinessPhoneNumbersInBothModes(t *testing.T) {
+	// Google's phone list can contain multiple numbers and duplicate representations.
+	business := make([]any, 179)
+	business[11] = "Test business"
+	business[178] = []any{[]any{"303 555 0100"}, []any{"3035550100"}, []any{"303 555 0101"}, []any{""}}
+	fullRaw, err := json.Marshal([]any{nil, nil, nil, nil, nil, nil, business})
+	require.NoError(t, err)
+
+	entry, err := gmaps.EntryFromJSON(fullRaw)
+	require.NoError(t, err)
+	require.Equal(t, []string{"303 555 0100", "303 555 0101"}, entry.PhoneNumbers)
+	require.Equal(t, "303 555 0100", entry.Phone)
+	entryJSON, err := json.Marshal(entry)
+	require.NoError(t, err)
+	require.Contains(t, string(entryJSON), `"phone_numbers":["303 555 0100","303 555 0101"]`)
+
+	item := make([]any, 15)
+	item[14] = business
+	searchRaw, err := json.Marshal([]any{[]any{nil, []any{nil, item}}})
+	require.NoError(t, err)
+
+	entries, err := gmaps.ParseSearchResults(searchRaw)
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	require.Equal(t, entry.PhoneNumbers, entries[0].PhoneNumbers)
+	require.Equal(t, "3035550100", entries[0].Phone)
 }

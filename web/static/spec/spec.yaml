@@ -40,6 +40,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiError'
+        '503':
+          description: ZIP lookup is temporarily unavailable; no job is created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
         '500':
           description: Internal server error
           content:
@@ -142,6 +148,13 @@ paths:
           required: true
           schema:
             type: string
+        - name: format
+          in: query
+          description: Business CSV has Business name, Website address, Physical address, Phone number(s), and Hours; missing information is blank.
+          schema:
+            type: string
+            enum: [full, business]
+            default: full
       responses:
         '200':
           description: Successful response
@@ -186,8 +199,24 @@ components:
           type: string
         fast_mode:
           type: boolean
+        zip_code:
+          type: string
+          description: US ZIP or ZIP+4; resolved to its approximate center before saving. Takes priority over lat/lon.
+          pattern: '^[0-9]{5}(-[0-9]{4})?$'
+          example: '80202'
+        radius_miles:
+          type: number
+          minimum: 0
+          description: Optional positive radius in miles, filtering results in both modes. Requires zip_code or both lat/lon; excludes results without coordinates. Zero or omission means no miles filter.
+          example: 2.5
+        location_name:
+          type: string
+          readOnly: true
+          description: City and state returned by ZIP lookup.
         radius:
           type: integer
+          minimum: 0
+          description: Legacy radius in meters for fast mode; radius_miles takes priority.
         depth:
           type: integer
         email:
@@ -237,8 +266,24 @@ components:
           type: string
         fast_mode:
           type: boolean
+        zip_code:
+          type: string
+          description: US ZIP or ZIP+4; resolved to its approximate center before saving. Takes priority over lat/lon.
+          pattern: '^[0-9]{5}(-[0-9]{4})?$'
+          example: '80202'
+        radius_miles:
+          type: number
+          minimum: 0
+          description: Optional positive radius in miles, filtering results in both modes. Requires zip_code or both lat/lon; excludes results without coordinates. Zero or omission means no miles filter.
+          example: 2.5
+        location_name:
+          type: string
+          readOnly: true
+          description: City and state returned by ZIP lookup.
         radius:
           type: integer
+          minimum: 0
+          description: Legacy radius in meters for fast mode; radius_miles takes priority.
         depth:
           type: integer
         email:

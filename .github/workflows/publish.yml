@@ -34,6 +34,7 @@ jobs:
     outputs:
       image: ${{ steps.image.outputs.name }}
       version: ${{ steps.release.outputs.version }}
+      revision: ${{ steps.release.outputs.revision }}
     steps:
       - name: Check out the repo
         uses: actions/checkout@v4
@@ -50,6 +51,7 @@ jobs:
             exit 1
           fi
           echo "version=${RELEASE_TAG#v}" >> "$GITHUB_OUTPUT"
+          echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
           echo "revision=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Set image name
@@ -76,7 +78,14 @@ jobs:
           flavor: latest=false
           tags: type=raw,value=${{ steps.release.outputs.version }}
           labels: |
+            org.opencontainers.image.title=Google Maps Scraper Neo
+            org.opencontainers.image.description=Google Maps business scraper with ZIP targeting, miles radius, and business-detail exports
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.url=https://github.com/${{ github.repository }}/releases/tag/${{ steps.release.outputs.tag }}
+            org.opencontainers.image.documentation=https://github.com/${{ github.repository }}/blob/${{ steps.release.outputs.tag }}/README.md
+            org.opencontainers.image.version=${{ steps.release.outputs.version }}
             org.opencontainers.image.revision=${{ steps.release.outputs.revision }}
+            org.opencontainers.image.licenses=MIT
 
       - name: Build and push image by digest
         id: build
@@ -133,6 +142,8 @@ jobs:
         env:
           IMAGE: ${{ needs.build_container.outputs.image }}
           VERSION: ${{ needs.build_container.outputs.version }}
+          REVISION: ${{ needs.build_container.outputs.revision }}
+          REPOSITORY: ${{ github.repository }}
         run: |
           sources=()
           for digest in *; do
@@ -140,6 +151,15 @@ jobs:
             sources+=("$IMAGE@sha256:$digest")
           done
           [[ ${#sources[@]} -eq 2 ]] || exit 1
-          docker buildx imagetools create --tag "$IMAGE:$VERSION" --tag "$IMAGE:latest-neo" "${sources[@]}"
+          docker buildx imagetools create \
+            --annotation "index:org.opencontainers.image.title=Google Maps Scraper Neo" \
+            --annotation "index:org.opencontainers.image.description=Google Maps business scraper with ZIP targeting, miles radius, and business-detail exports" \
+            --annotation "index:org.opencontainers.image.version=$VERSION" \
+            --annotation "index:org.opencontainers.image.revision=$REVISION" \
+            --annotation "index:org.opencontainers.image.source=https://github.com/$REPOSITORY" \
+            --annotation "index:org.opencontainers.image.url=https://github.com/$REPOSITORY/releases/tag/v$VERSION" \
+            --annotation "index:org.opencontainers.image.documentation=https://github.com/$REPOSITORY/blob/v$VERSION/README.md" \
+            --annotation "index:org.opencontainers.image.licenses=MIT" \
+            --tag "$IMAGE:$VERSION" --tag "$IMAGE:latest-neo" "${sources[@]}"
           docker buildx imagetools inspect "$IMAGE:$VERSION" | tee "$RUNNER_TEMP/manifest.txt"
           cat "$RUNNER_TEMP/manifest.txt" >> "$GITHUB_STEP_SUMMARY"

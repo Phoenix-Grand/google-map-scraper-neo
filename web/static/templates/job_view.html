@@ -1,29 +1,99 @@
 <div id="map-modal" class="map-modal" role="dialog" aria-modal="true" aria-labelledby="map-modal-title" onclick="if(event.target===this)closeJobMap()">
     <div class="map-modal-content">
         <div class="map-modal-header">
-            <h2 id="map-modal-title">Places</h2>
+            <h2 id="map-modal-title">Business details</h2>
             <button type="button" class="map-modal-close" aria-label="Close" onclick="closeJobMap()">&times;</button>
         </div>
         <div class="map-modal-body">
             <div id="job-map"></div>
-            <div id="job-places-list"></div>
+            <div id="job-places-list" aria-label="Business results"></div>
         </div>
     </div>
     <script>
     (function () {
         var places = {{ . }};
-
+        var modal = document.getElementById('map-modal');
+        // HTMX can evaluate fragment scripts more than once during a swap.
+        if (!modal || modal.dataset.initialized === 'true') return;
+        modal.dataset.initialized = 'true';
+        var listEl = modal.querySelector('#job-places-list');
+        var mapEl = modal.querySelector('#job-map');
         var LEAFLET_CSS = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css';
         var LEAFLET_JS = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js';
+        var cards = [];
 
-        // ensureLeaflet lazily loads Leaflet (CSS + JS) the first time the map
-        // is opened, then invokes callback once it is available.
+        function safeLink(url, label) {
+            try {
+                var parsed = new URL(url);
+                if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+                var link = document.createElement('a');
+                link.href = parsed.href;
+                link.textContent = label;
+                link.target = '_blank';
+                link.rel = 'noopener noreferrer';
+                link.addEventListener('click', function (event) { event.stopPropagation(); });
+                return link;
+            } catch (_) {
+                return null;
+            }
+        }
+
+        function addDetail(list, label, value) {
+            var term = document.createElement('dt');
+            term.textContent = label;
+            var detail = document.createElement('dd');
+            if (value instanceof Node) {
+                detail.appendChild(value);
+            } else {
+                detail.textContent = value || 'Not available';
+            }
+            list.append(term, detail);
+        }
+
+        function businessCard(place) {
+            var card = document.createElement('article');
+            card.className = 'place-item';
+            var title = document.createElement('h3');
+            title.className = 'place-title';
+            title.textContent = place.title || 'Business name not available';
+            card.appendChild(title);
+            var details = document.createElement('dl');
+            details.className = 'business-details';
+            addDetail(details, 'Website address', safeLink(place.website, place.website) || place.website);
+            addDetail(details, 'Physical address', place.address);
+            addDetail(details, 'Phone number(s)', (place.phone_numbers || []).join('\n'));
+            addDetail(details, 'Hours', place.hours);
+            card.appendChild(details);
+            var mapsLink = safeLink(place.link, 'View on Google Maps');
+            if (mapsLink) card.appendChild(mapsLink);
+            return card;
+        }
+
+        // Show details even if the optional map library cannot load.
+        places.forEach(function (place) {
+            var card = businessCard(place);
+            cards.push(card);
+            listEl.appendChild(card);
+        });
+        document.getElementById('map-modal-title').textContent = 'Business details (' + places.length + ')';
+        if (!places.length) {
+            var empty = document.createElement('p');
+            empty.className = 'map-empty';
+            empty.textContent = 'No business results are available for this job.';
+            listEl.appendChild(empty);
+        }
+
+        function mapUnavailable() {
+            if (!modal.isConnected) return;
+            mapEl.textContent = 'The map could not load. Business details are available alongside it.';
+            mapEl.classList.add('map-unavailable');
+        }
+
         function ensureLeaflet(callback) {
             if (window.L) {
                 callback();
                 return;
             }
-
             if (!document.getElementById('leaflet-css')) {
                 var link = document.createElement('link');
                 link.id = 'leaflet-css';
@@ -31,94 +101,47 @@
                 link.href = LEAFLET_CSS;
                 document.head.appendChild(link);
             }
-
             var script = document.getElementById('leaflet-js');
+            if (script && script.dataset.failed) script.remove();
+            script = document.getElementById('leaflet-js');
             if (!script) {
                 script = document.createElement('script');
                 script.id = 'leaflet-js';
                 script.src = LEAFLET_JS;
+                script.addEventListener('error', function () { script.dataset.failed = 'true'; });
                 document.head.appendChild(script);
             }
-
-            script.addEventListener('load', callback);
+            script.addEventListener('load', callback, { once: true });
+            script.addEventListener('error', mapUnavailable, { once: true });
         }
 
-        function escapeHtml(str) {
-            var div = document.createElement('div');
-            div.textContent = str == null ? '' : str;
-            return div.innerHTML;
-        }
-
-        function createMap() {
-            if (window.__jobMap) {
-                window.__jobMap.remove();
-            }
-
-            var map = L.map('job-map');
+        function initJobMap() {
+            if (!modal.isConnected || !window.L) return;
+            if (window.__jobMap) window.__jobMap.remove();
+            var map = L.map(mapEl);
+            window.__jobMap = map;
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                 maxZoom: 19,
                 attribution: '© OpenStreetMap contributors'
             }).addTo(map);
-
-            window.__jobMap = map;
-            return map;
-        }
-
-        function placePopup(place) {
-            var parts = ['<strong>' + escapeHtml(place.title) + '</strong>'];
-            if (place.address) {
-                parts.push(escapeHtml(place.address));
-            }
-            if (place.link && /^https?:\/\//i.test(place.link)) {
-                parts.push('<a href="' + encodeURI(place.link) + '" target="_blank" rel="noopener noreferrer">View on Google Maps</a>');
-            }
-            return parts.join('<br>');
-        }
-
-        function placeListItem(place, onSelect) {
-            var item = document.createElement('div');
-            item.className = 'place-item';
-            item.innerHTML = '<div class="place-title">' + escapeHtml(place.title) + '</div>' +
-                (place.address ? '<div class="place-address">' + escapeHtml(place.address) + '</div>' : '') +
-                (place.review_rating ? '<div class="place-rating">★ ' + escapeHtml(String(place.review_rating)) + '</div>' : '');
-            item.addEventListener('click', onSelect);
-            return item;
-        }
-
-        function renderPlaces(map, listEl) {
             var bounds = [];
-
-            places.forEach(function (place) {
+            places.forEach(function (place, index) {
+                if (!place.has_coordinates) return;
                 var latlng = [place.latitude, place.longitude];
                 bounds.push(latlng);
-
-                L.marker(latlng).bindPopup(placePopup(place)).addTo(map);
-                listEl.appendChild(placeListItem(place, function () {
+                var marker = L.marker(latlng).bindPopup(businessCard(place)).addTo(map);
+                cards[index].classList.add('place-mappable');
+                cards[index].addEventListener('click', function () {
                     map.setView(latlng, 16);
-                }));
+                    marker.openPopup();
+                });
             });
-
-            map.fitBounds(bounds, { padding: [30, 30] });
-            setTimeout(function () { map.invalidateSize(); }, 0);
-        }
-
-        function showEmptyState(map, listEl) {
-            listEl.innerHTML = '<p class="map-empty">No places with coordinates were found for this job.</p>';
-            map.setView([0, 0], 2);
-        }
-
-        function initJobMap() {
-            var listEl = document.getElementById('job-places-list');
-            var map = createMap();
-
-            listEl.innerHTML = '';
-
-            if (places.length === 0) {
-                showEmptyState(map, listEl);
-                return;
+            if (bounds.length) {
+                map.fitBounds(bounds, { padding: [30, 30], maxZoom: 16 });
+            } else {
+                map.setView([0, 0], 2);
             }
-
-            renderPlaces(map, listEl);
+            setTimeout(function () { if (modal.isConnected) map.invalidateSize(); }, 0);
         }
 
         window.closeJobMap = function () {
@@ -126,13 +149,8 @@
                 window.__jobMap.remove();
                 window.__jobMap = null;
             }
-
-            var container = document.getElementById('map-modal-container');
-            if (container) {
-                container.innerHTML = '';
-            }
+            document.getElementById('map-modal-container').replaceChildren();
         };
-
         ensureLeaflet(initJobMap);
     })();
     </script>

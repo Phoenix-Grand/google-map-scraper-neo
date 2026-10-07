@@ -1,22 +1,44 @@
 # Google Maps Scraper Neo
 
-Neo is maintained at [Phoenix-Grand/google-map-scraper-neo](https://github.com/Phoenix-Grand/google-map-scraper-neo), based on [gosom/google-maps-scraper](https://github.com/gosom/google-maps-scraper). This fork fixes Web UI job tables and pagination, serves HTMX locally, and records failed scraping jobs correctly.
+Neo is maintained at [Phoenix-Grand/google-map-scraper-neo](https://github.com/Phoenix-Grand/google-map-scraper-neo), based on upstream [gosom/google-maps-scraper](https://github.com/gosom/google-maps-scraper) 1.18.1. It adds US ZIP targeting, a radius in miles, and business-detail views and exports, alongside fixes for Web UI job tables, pagination, and failed-job status.
+
+Current Neo release: **[v1.18.1-neo.2](https://github.com/Phoenix-Grand/google-map-scraper-neo/releases/tag/v1.18.1-neo.2)**. See the [changelog](changelog.md) and [future additions](TODO.md). Neo release numbers retain the upstream base version and increment the `neo.N` suffix.
 
 The versioned container image includes Chromium and supports Linux on AMD64 and ARM64:
 
 ```bash
-docker pull ghcr.io/phoenix-grand/google-map-scraper-neo:1.18.1-neo.1
+docker pull ghcr.io/phoenix-grand/google-map-scraper-neo:1.18.1-neo.2
 mkdir -p webdata
 docker run -d --name gmaps-neo --init --shm-size=1g \
   --restart unless-stopped \
   -p 127.0.0.1:8081:8080 \
   -v "$(pwd)/webdata:/gmapsdata" \
   -e DISABLE_TELEMETRY=1 \
-  ghcr.io/phoenix-grand/google-map-scraper-neo:1.18.1-neo.1 \
+  ghcr.io/phoenix-grand/google-map-scraper-neo:1.18.1-neo.2 \
   -web -data-folder /gmapsdata -addr :8080
 ```
 
-Open [http://localhost:8081](http://localhost:8081). Use `latest-neo` to follow the newest Neo release. Pushing a Git tag such as `v1.18.1-neo.1` publishes both the matching version tag and `latest-neo` to GitHub Container Registry.
+Open [http://localhost:8081](http://localhost:8081). Use the versioned tag for a pinned deployment or `latest-neo` to follow the newest Neo release. The public image includes Linux AMD64 and ARM64 builds. Release images carry OCI labels for their version, source commit, repository, documentation, and MIT license.
+
+To upgrade an existing deployment, pull the new image and recreate its container while keeping the same data-volume mount. Existing job data and CSV files remain readable; no database migration is required. The local source build uses `docker compose -f docker-compose.web.yaml up -d --build` and retains `./webdata`.
+
+Pushing an annotated Neo Git tag such as `v1.18.1-neo.2` publishes both `1.18.1-neo.2` and `latest-neo` through GitHub Actions. A failed platform build leaves the existing version tags unchanged. The publication workflow also accepts an existing release tag for a manual retry.
+
+### ZIP targeting and business details
+
+In **Location Settings**, enter a US ZIP code and an optional radius in miles. ZIP+4 uses the first five digits, including leading zeros. The search starts at the ZIP's approximate center, resolved through [Zippopotam.us](https://api.zippopotam.us/); it does not follow ZIP boundary lines. Alternatively, enter both latitude and longitude. A ZIP takes priority over manual coordinates.
+
+The miles radius filters exported businesses by straight-line distance from that center in both normal and fast modes. A radius requires a ZIP or both coordinates. Results without usable coordinates are excluded when a radius is set. Leaving the radius blank keeps the usual Google Maps search behavior; search depth and time still affect how many results are found.
+
+For completed jobs, **Details** shows business names, websites, physical addresses, phone numbers, and opening hours alongside the map. **Business CSV** downloads those five columns, with blank cells for unavailable information. **Full CSV** retains all scraped fields and appends a `phone_numbers` JSON array after the existing columns. Existing job files remain readable, and the command-line CSV schema is unchanged.
+
+The API accepts `zip_code` and `radius_miles` on job creation. For example:
+
+```json
+{"name":"Denver coffee","keywords":["coffee shops"],"lang":"en","zip_code":"80202","radius_miles":2.5,"zoom":15,"depth":1,"max_time":180}
+```
+
+Download the five-column export from `/api/v1/jobs/{id}/download?format=business`; the default download remains the full CSV. The legacy API `radius` field is still measured in meters for fast mode. ZIP lookup requires outbound HTTPS access; an unknown ZIP returns 422 and a provider outage returns 503 before creating a job.
 
 <p align="center">
   <a href="https://github.com/gosom/google-maps-scraper/stargazers"><img src="https://img.shields.io/github/stars/gosom/google-maps-scraper?style=social" alt="GitHub Stars"></a>

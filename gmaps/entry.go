@@ -101,6 +101,7 @@ type Entry struct {
 	PopularTimes     map[string]map[int]int `json:"popular_times"`
 	WebSite          string                 `json:"web_site"`
 	Phone            string                 `json:"phone"`
+	PhoneNumbers     []string               `json:"phone_numbers,omitempty"`
 	PlusCode         string                 `json:"plus_code"`
 	ReviewCount      int                    `json:"review_count"`
 	ReviewRating     float64                `json:"review_rating"`
@@ -198,6 +199,18 @@ func (e *Entry) isWithinRadius(lat, lon, radius float64) bool {
 	distance := e.haversineDistance(lat, lon)
 
 	return distance <= radius
+}
+
+// WithinRadius reports whether a place has usable coordinates inside the radius in meters.
+func (e *Entry) WithinRadius(lat, lon, radius float64) bool {
+	if e == nil || math.IsNaN(e.Latitude) || math.IsNaN(e.Longtitude) ||
+		math.IsInf(e.Latitude, 0) || math.IsInf(e.Longtitude, 0) ||
+		e.Latitude < -90 || e.Latitude > 90 || e.Longtitude < -180 || e.Longtitude > 180 ||
+		(e.Latitude == 0 && e.Longtitude == 0) {
+		return false
+	}
+
+	return e.isWithinRadius(lat, lon, radius)
 }
 
 func (e *Entry) IsWebsiteValidForEmail() bool {
@@ -409,6 +422,7 @@ func EntryFromJSON(raw []byte, reviewCountOnly ...bool) (entry Entry, err error)
 	entry.PopularTimes = getPopularTimes(darray)
 	entry.WebSite = extractActualURL(getNthElementAndCast[string](darray, 7, 0))
 	entry.Phone = getNthElementAndCast[string](darray, 178, 0, 0)
+	entry.PhoneNumbers = getPhoneNumbers(darray)
 	entry.PlusCode = getNthElementAndCast[string](darray, 183, 2, 2, 0)
 	entry.ReviewRating = getNthElementAndCast[float64](darray, 4, 7)
 	entry.Latitude = getNthElementAndCast[float64](darray, 9, 2)

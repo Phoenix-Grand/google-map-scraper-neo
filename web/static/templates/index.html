@@ -67,20 +67,31 @@
                         </div>
                     </fieldset>
                     
-                    <details class="expandable-section">
+                    <details class="expandable-section" open>
                         <summary>Location Settings</summary>
                         <fieldset>
                             <div class="form-group">
+                                <label for="zip_code">US ZIP code:</label>
+                                <input type="text" id="zip_code" name="zip_code" value="{{.ZIPCode}}" inputmode="numeric" pattern="[0-9]{5}(-[0-9]{4})?" maxlength="10" placeholder="e.g. 80202">
+                                <small class="field-help">Search from the ZIP's center. ZIP+4 uses the first 5 digits.</small>
+                            </div>
+                            <div class="form-group">
+                                <label for="radius_miles">Radius (miles):</label>
+                                <input type="number" id="radius_miles" name="radius_miles" min="0.01" step="any" placeholder="e.g. 5">
+                                <small class="field-help">Optional. Return businesses within this distance of the ZIP center or coordinates, in either mode. Businesses without coordinates are excluded when a radius is set.</small>
+                            </div>
+                            <p class="field-help">Alternatively, enter both coordinates below. A ZIP code takes priority.</p>
+                            <div class="form-group">
                                 <label for="zoom">Zoom:</label>
-                                <input type="number" id="zoom" name="zoom" value="{{.Zoom}}">
+                                <input type="number" id="zoom" name="zoom" value="{{.Zoom}}" min="1" max="21">
                             </div>
                             <div class="form-group">
                                 <label for="latitude">Latitude:</label>
-                                <input type="number" step="0.000000000000001" id="latitude" name="latitude" value="{{.Lat}}">
+                                <input type="number" step="any" id="latitude" name="latitude" value="{{.Lat}}" min="-90" max="90">
                             </div>
                             <div class="form-group">
                                 <label for="longitude">Longitude:</label>
-                                <input type="number" step="0.000000000000001" id="longitude" name="longitude" value="{{.Lon}}">
+                                <input type="number" step="any" id="longitude" name="longitude" value="{{.Lon}}" min="-180" max="180">
                             </div>
                         </fieldset>
                     </details>
@@ -91,10 +102,6 @@
                             <div class="form-group">
                                 <label for="fastmode">Fast Mode (BETA):</label>
                                 <input type="checkbox" id="fastmode" name="fastmode" {{if .FastMode}}checked{{end}}>
-                            </div>
-                            <div class="form-group">
-                                    <label for="radius">Radius (BETA):</label>
-                                    <input type="number" id="radius" name="radius" value="{{.Radius}}">
                             </div>
                             <div class="form-group">
                                 <label for="depth">Depth:</label>

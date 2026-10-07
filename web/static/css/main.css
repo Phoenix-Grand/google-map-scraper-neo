@@ -419,21 +419,37 @@ nav a:hover {
 #job-map {
     flex: 3;
     height: 100%;
+    min-width: 0;
 }
 
 #job-places-list {
     flex: 1;
-    min-width: 240px;
-    max-width: 360px;
+    min-width: 320px;
+    max-width: 440px;
     overflow-y: auto;
     border-left: 1px solid #e0e0e0;
     padding: 8px;
 }
 
 .place-item {
-    padding: 8px;
+    padding: 12px;
     border-bottom: 1px solid #f0f0f0;
-    cursor: pointer;
+}
+
+.place-mappable { cursor: pointer; }
+.place-title { margin: 0 0 12px; font-size: 1rem; }
+.business-details { margin: 0 0 12px; font-size: 0.85rem; }
+.business-details dt { font-weight: 600; color: #555; margin-top: 8px; }
+.business-details dd { margin: 3px 0 0; white-space: pre-line; overflow-wrap: anywhere; }
+.business-details a { color: #1a68d1; }
+.field-help { display: block; color: #666; font-size: 0.8rem; margin-top: 6px; line-height: 1.4; }
+.job-location { display: block; color: #666; margin-top: 4px; }
+.map-unavailable { padding: 16px; box-sizing: border-box; color: #666; }
+
+@media (max-width: 700px) {
+    .map-modal-body { flex-direction: column; }
+    #job-map { flex: none; height: 35%; }
+    #job-places-list { min-width: 0; max-width: none; border-left: 0; border-top: 1px solid #e0e0e0; }
 }
 
 .place-item:hover {

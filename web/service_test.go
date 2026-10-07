@@ -43,7 +43,7 @@ func TestGetPlacesParsesCSV(t *testing.T) {
 	}
 }
 
-func TestGetPlacesSkipsRowsWithoutCoords(t *testing.T) {
+func TestGetPlacesKeepsDetailsWithoutCoords(t *testing.T) {
 	dir := t.TempDir()
 	svc := NewService(nil, dir)
 
@@ -59,16 +59,18 @@ func TestGetPlacesSkipsRowsWithoutCoords(t *testing.T) {
 		t.Fatalf("GetPlaces: %v", err)
 	}
 
-	if len(places) != 1 {
-		t.Fatalf("expected 1 place, got %d", len(places))
+	if len(places) != 4 {
+		t.Fatalf("expected 4 places, got %d", len(places))
 	}
 
-	if places[0].Title != "Good" {
-		t.Fatalf("unexpected place: %+v", places[0])
+	for i, place := range places {
+		if place.HasCoordinates != (i == 3) {
+			t.Fatalf("unexpected coordinate availability: %+v", place)
+		}
 	}
 }
 
-func TestGetPlacesSkipsNonFiniteAndOutOfRangeCoords(t *testing.T) {
+func TestGetPlacesSanitizesNonFiniteAndOutOfRangeCoords(t *testing.T) {
 	dir := t.TempDir()
 	svc := NewService(nil, dir)
 
@@ -85,8 +87,14 @@ func TestGetPlacesSkipsNonFiniteAndOutOfRangeCoords(t *testing.T) {
 		t.Fatalf("GetPlaces: %v", err)
 	}
 
-	if len(places) != 2 {
-		t.Fatalf("expected 2 places (BadRating + Good), got %d: %+v", len(places), places)
+	if len(places) != 5 {
+		t.Fatalf("expected all 5 business results, got %d: %+v", len(places), places)
+	}
+
+	for i := 0; i < 3; i++ {
+		if places[i].HasCoordinates || places[i].Latitude != 0 || places[i].Longitude != 0 {
+			t.Fatalf("invalid coordinates should be sanitized: %+v", places[i])
+		}
 	}
 
 	for _, p := range places {

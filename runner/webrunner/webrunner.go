@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -203,13 +204,7 @@ func (w *webrunner) scrapeJob(ctx context.Context, job *web.Job) (err error) {
 		job.Data.Email,
 		coords,
 		job.Data.Zoom,
-		func() float64 {
-			if job.Data.Radius <= 0 {
-				return 10000 // 10 km
-			}
-
-			return float64(job.Data.Radius)
-		}(),
+		job.Data.RadiusMeters(),
 		dedup,
 		exitMonitor,
 		w.cfg.ExtraReviews || job.Data.ExtraReviews,
@@ -296,8 +291,22 @@ func defaultSetupMate(cfg *runner.Config) func(context.Context, io.Writer, *web.
 		log.Printf("job %s has proxy: %v", job.ID, hasProxy)
 
 		csvWriter := csvwriter.NewCsvWriter(csv.NewWriter(writer))
+		businessWriter := &businessResultWriter{writer: csvWriter}
 
-		writers := []scrapemate.ResultWriter{csvWriter}
+		if job.Data.RadiusMiles > 0 {
+			latitude, latErr := strconv.ParseFloat(job.Data.Lat, 64)
+
+			longitude, lonErr := strconv.ParseFloat(job.Data.Lon, 64)
+			if latErr != nil || lonErr != nil {
+				return nil, errors.New("invalid radius center coordinates")
+			}
+
+			businessWriter.latitude = latitude
+			businessWriter.longitude = longitude
+			businessWriter.radius = job.Data.RadiusMeters()
+		}
+
+		writers := []scrapemate.ResultWriter{businessWriter}
 
 		matecfg, err := scrapemateapp.NewConfig(
 			writers,

@@ -67,6 +67,7 @@ func ParseSearchResults(raw []byte) ([]*Entry, error) {
 		entry.Latitude = getNthElementAndCast[float64](business, 9, 2)
 		entry.Longtitude = getNthElementAndCast[float64](business, 9, 3)
 		entry.Phone = strings.ReplaceAll(getNthElementAndCast[string](business, 178, 0, 0), " ", "")
+		entry.PhoneNumbers = getPhoneNumbers(business)
 		entry.OpenHours = getHours(business)
 		entry.Status = getNthElementAndCast[string](business, 34, 4, 4)
 		entry.Timezone = getNthElementAndCast[string](business, 30)
@@ -78,6 +79,34 @@ func ParseSearchResults(raw []byte) ([]*Entry, error) {
 	}
 
 	return entries, nil
+}
+
+func getPhoneNumbers(business []any) []string {
+	items := getNthElementAndCast[[]any](business, 178)
+
+	var numbers []string
+
+	seen := make(map[string]bool)
+
+	for _, item := range items {
+		fields, ok := item.([]any)
+		if !ok {
+			continue
+		}
+
+		number := strings.TrimSpace(getNthElementAndCast[string](fields, 0))
+
+		key := strings.ReplaceAll(number, " ", "")
+		if key == "" || seen[key] {
+			continue
+		}
+
+		seen[key] = true
+
+		numbers = append(numbers, number)
+	}
+
+	return numbers
 }
 
 func toStringSlice(arr []any) []string {
